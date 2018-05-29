@@ -5,7 +5,7 @@ from mxnet.gluon.data import Dataset, DataLoader
 import kaldi_io
 import logging
 
-logger = logging.get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 '''
 source: key feature_mat
@@ -13,7 +13,7 @@ target: key word_sequence
 
 Note: should add <sos> and <eos> to the target sequence for enc-dec training
 '''
-def get_data_for_kaldi_io(source_rspecifier, target_rspecifier):
+def get_data_for_kaldi_io(source_rspecifier:str, target_rspecifier:str, bos:int, eos:int):
     src = {}
     tgt = {}
     for key,mat in kaldi_io.read_mat_ark(source_rspecifier):
@@ -32,13 +32,18 @@ def get_data_for_kaldi_io(source_rspecifier, target_rspecifier):
             tmp_data.append(feature)
             tmp_length.append(len(feature))
 
-            tgt_extend = np.concatenate(([tgt_vocab['<bos>']], tgt[key], [tgt_vocab['<eos>']]), axis=0)
+            if bos and eos:
+                tgt_extend = np.concatenate(([bos], tgt[key], [eos]), axis=0)
+            else:
+                logger.warning('The target sequence has no <bos> and <eos> extend!')
+                tgt_extend = tgt[key]
+
             tmp_label.append(tgt_extend)
             tmp_llength.append(len(tgt_extend))
             tmp_key.append(key)
-            # cnt+=1
-            # if cnt==100:
-            #     break
+            cnt+=1
+            if cnt==100:
+                break
         else:
             logger.warning("{:s} has no label".format(key))
             pass
@@ -50,9 +55,9 @@ data: shape (max_length, feature_size)
 label: shape (max_llength, )
 '''
 class Reader(Dataset):
-    def __init__(self, source_rspecifier, target_rspecifier):
+    def __init__(self, source_rspecifier, target_rspecifier, bos=0, eos=1):
         super(Reader, self).__init__()
-        self.data, self.label, self.length, self.llength, self.utt_keys = get_data_for_kaldi_io(source_rspecifier, target_rspecifier)
+        self.data, self.label, self.length, self.llength, self.utt_keys = get_data_for_kaldi_io(source_rspecifier, target_rspecifier, bos=bos, eos=eos)
         self.input_dim = self.data[0].shape[1]
 
     def __len__(self):
@@ -63,3 +68,6 @@ class Reader(Dataset):
 
     def get_utt_key(self, index):
         return self.utt_keys[index]
+
+    def get_valid_length(self):
+        return [(l, ll) for l, ll in zip(self.length, self.llength)]

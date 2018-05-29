@@ -21,10 +21,12 @@
 for speeding up the processing of variable-length sequences."""
 __all__ = ['SortedSampler', 'FixedBucketSampler', 'SortedBucketSampler']
 
-import warnings
+# import warnings
+import logging
 import numpy as np
 from mxnet.gluon.data import Sampler
 
+logger = logging.getLogger(__name__)
 
 def _match_bucket_keys(bucket_keys, seq_lengths):
     bucket_key_npy = np.array(bucket_keys, dtype=np.int32)
@@ -170,7 +172,8 @@ class FixedBucketSampler(Sampler):
                                for i in range(num_buckets)]
         else:
             if num_buckets is not None:
-                warnings.warn('num_buckets will not be used if bucket_keys is not None. '
+                # pass
+                logger.warning('num_buckets will not be used if bucket_keys is not None. '
                               'bucket_keys=%s, num_buckets=%d' % (str(bucket_keys), num_buckets))
             assert len(bucket_keys) > 0
             if self._single_element:
@@ -184,7 +187,8 @@ class FixedBucketSampler(Sampler):
         unused_bucket_keys = [key for key, sample_ids in zip(bucket_keys, bucket_sample_ids)
                               if len(sample_ids) == 0]
         if len(unused_bucket_keys) > 0:
-            warnings.warn('Some buckets are empty and will be removed. Unused bucket keys=%s' %
+            # pass
+            logger.warning('Some buckets are empty and will be removed. Unused bucket keys=%s' %
                           str(unused_bucket_keys))
         # Remove empty buckets
         self._bucket_keys = [key for key, sample_ids in zip(bucket_keys, bucket_sample_ids)

@@ -1,5 +1,9 @@
 # Byte-compiled / optimized / DLL files
 __pycache__
+gluonE2EASR/__pycache__
+gluonE2EASR/data/__pycache__
+gluonE2EASR/model/__pycache__
+
 *.py[cod]
 *$py.class
 

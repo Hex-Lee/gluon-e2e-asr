@@ -18,90 +18,14 @@
 # under the License.
 
 # pylint: disable=wildcard-import, arguments-differ
-r"""Module for pre-defined NLP models.
-
-This module contains definitions for the following model architectures:
--  `AWD`_
-
-You can construct a model with random weights by calling its constructor. Because NLP models
-are tied to vocabularies, you can either specify a dataset name to load and use the vocabulary
-of that dataset:
-
-.. code-block:: python
-
-    import gluonnlp as nlp
-    awd, vocab = nlp.model.awd_lstm_lm_1150(dataset_name='wikitext-2')
-
-or directly specify a vocabulary object:
-
-.. code-block:: python
-
-    awd, vocab = nlp.model.awd_lstm_lm_1150(None, vocab=custom_vocab)
-
-We provide pre-trained models for all the listed models.
-These models can constructed by passing ``pretrained=True``:
-
-.. code-block:: python
-
-    awd, vocab = nlp.model.awd_lstm_lm_1150(dataset_name='wikitext-2'
-                                            pretrained=True)
-
-.. _AWD: https://arxiv.org/abs/1404.5997
-"""
-
-from .language_model import *
 
 from .beam_search import *
 
 from .attention_cell import *
 
-from .utils import *
-
-from .parameter import *
+from .base_encoder_decoder import *
 
 from .block import *
 
-__all__ = language_model.__all__ + beam_search.__all__ + attention_cell.__all__ + \
-    utils.__all__ + parameter.__all__ + block.__all__
-
-
-def get_model(name, dataset_name='wikitext-2', **kwargs):
-    """Returns a pre-defined model by name.
-
-    Parameters
-    ----------
-    name : str
-        Name of the model.
-    dataset_name : str or None, default 'wikitext-2'.
-        The dataset name on which the pretrained model is trained.
-        Options are 'wikitext-2'. If specified, then the returned vocabulary is extracted from
-        the training set of the dataset.
-        If None, then vocab is required, for specifying embedding weight size, and is directly
-        returned.
-    vocab : gluonnlp.Vocab or None, default None
-        Vocabulary object to be used with the language model.
-        Required when dataset_name is not specified.
-    pretrained : bool, default False
-        Whether to load the pretrained weights for model.
-    ctx : Context, default CPU
-        The context in which to load the pretrained weights.
-    root : str, default '~/.mxnet/models'
-        Location for keeping the model parameters.
-
-    Returns
-    -------
-    HybridBlock
-        The model.
-    """
-    models = {'standard_lstm_lm_200': standard_lstm_lm_200,
-              'standard_lstm_lm_650': standard_lstm_lm_650,
-              'standard_lstm_lm_1500': standard_lstm_lm_1500,
-              'awd_lstm_lm_1150': awd_lstm_lm_1150,
-              'awd_lstm_lm_600': awd_lstm_lm_600}
-    name = name.lower()
-    if name not in models:
-        raise ValueError(
-            'Model %s is not supported. Available options are\n\t%s'%(
-                name, '\n\t'.join(sorted(models.keys()))))
-    kwargs['dataset_name'] = dataset_name
-    return models[name](**kwargs)
+__all__ = base_encoder_decoder.__all__ + beam_search.__all__ + attention_cell.__all__ + \
+            block.__all__

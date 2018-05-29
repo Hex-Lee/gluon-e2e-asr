@@ -30,3 +30,4 @@ def split_and_load(data, ctx):
         res = [data[i * m: (i + 1) * m].as_in_context(ctx[i]) for i in range(k-1)]
         res.append(data[(k-1)*m : n].as_in_context(ctx[k-1]))
         return res
+    return [data[i*m: (i + 1)*m].as_in_context(ctx[i]) for i in range(k)]

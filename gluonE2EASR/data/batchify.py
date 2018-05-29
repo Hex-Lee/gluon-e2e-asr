@@ -42,6 +42,7 @@ def _pad_arrs_to_max_length(arrs, pad_axis, pad_val, use_shared_mem=False):
     if not isinstance(arrs[0], (mx.nd.NDArray, np.ndarray)):
         arrs = [np.asarray(ele) for ele in arrs]
     original_length = [ele.shape[pad_axis] for ele in arrs]
+
     max_size = max(original_length)
     ret_shape = list(arrs[0].shape)
     ret_shape[pad_axis] = max_size

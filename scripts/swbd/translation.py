@@ -153,11 +153,13 @@ class NMTModel(Block):
         additional_outputs : list
             Additional outputs of the decoder, e.g, the attention weights
         """
-        outputs, states, additional_outputs =\
+        rnn_outputs, attention_vecs, states, additional_outputs =\
             self.decoder.decode_seq(inputs=self.tgt_embed(inputs),
                                     states=states,
                                     valid_length=valid_length)
-        outputs = self.tgt_proj(outputs)
+
+        combine_outpus = mx.nd.concat(rnn_outputs, attention_vecs, dim=2)
+        outputs = self.tgt_proj(combine_outpus)
         return outputs, states, additional_outputs
 
     def decode_step(self, step_input, states):
@@ -167,7 +169,7 @@ class NMTModel(Block):
         ----------
         step_input : NDArray
             Shape (batch_size,)
-        states : list of NDArrays
+        states : list of NDArrays -> [rnn_state, att_vec, mem_value, mem_masks]
 
         Returns
         -------
@@ -177,9 +179,11 @@ class NMTModel(Block):
         step_additional_outputs : list
             Additional outputs of the step, e.g, the attention weights
         """
-        step_output, states, step_additional_outputs =\
+        step_rnn_output, states, step_additional_outputs =\
             self.decoder(self.tgt_embed(step_input), states)
-        step_output = self.tgt_proj(step_output)
+
+        combine_step_output = mx.nd.concat(step_rnn_output, states[1], dim=1)
+        step_output = self.tgt_proj(combine_step_output)
         return step_output, states, step_additional_outputs
 
     def __call__(self, src_seq, tgt_seq, src_valid_length=None, tgt_valid_length=None):  #pylint: disable=arguments-differ

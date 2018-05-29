@@ -60,12 +60,21 @@ def _get_attention_cell(attention_cell, units=None):
     Parameters
     ----------
     attention_cell : AttentionCell or str
+
     units : int or None
 
     Returns
     -------
     attention_cell : AttentionCell
     """
+    
+
+    '''scaled: bool, default True
+                    Whether to divide the attention weights by the sqrt of the query dimension.
+                    This is first proposed in "[NIPS2017] Attention is all you need."::
+            
+                        score = <h_q, h_k> / sqrt(dim_q)'''
+
     if isinstance(attention_cell, str):
         if attention_cell == 'scaled_luong':
             return DotProductAttentionCell(units=units, scaled=True, normalized=False,
@@ -417,30 +426,34 @@ class NMTDecoder(HybridBlock, Seq2SeqDecoder):
         additional_outputs = []
         inputs = _as_list(mx.nd.split(inputs, num_outputs=length, axis=1, squeeze_axis=True))
         rnn_states = []
-        attention_output = []
+        attention_vec = []
         fixed_states = states[2:] # [rnn_state, att_vec, mem_value, mem_masks]
         for i in range(length):
             ele_output, states, ele_additional_outputs = self.forward(inputs[i], states)
             rnn_states.append(states[0])
-            attention_output.append(states[1])
+            attention_vec.append(states[1])
             rnn_output.append(ele_output)
             additional_outputs.append(ele_additional_outputs)
 
         if valid_length is not None:
             states = [_nested_sequence_last(rnn_states, valid_length),
-                      _nested_sequence_last(attention_output, valid_length)] + fixed_states
+                      _nested_sequence_last(attention_vec, valid_length)] + fixed_states
 
-        attention_output = mx.nd.stack(*attention_output, axis=1)
+        attention_vec = mx.nd.stack(*attention_vec, axis=1)
         rnn_output = mx.nd.stack(*rnn_output, axis=1)
-        combined_output = mx.nd.concat(rnn_output, attention_output, dim=2)
         if valid_length is not None:
-            combined_output = mx.nd.SequenceMask(combined_output,
+            rnn_output = mx.nd.SequenceMask(rnn_output,
                                         sequence_length=valid_length,
                                         use_sequence_length=True,
                                         axis=1)
+            attention_vec = mx.nd.SequenceMask(attention_vec,
+                                        sequence_length=valid_length,
+                                        use_sequence_length=True,
+                                        axis=1)
+        # combined_output = mx.nd.concat(rnn_output, attention_vec, dim=2)
         if self._output_attention:
             additional_outputs = [mx.nd.concat(*additional_outputs, dim=-2)]
-        return combined_output, states, additional_outputs
+        return rnn_output, attention_vec, states, additional_outputs
 
     def __call__(self, step_input, states):
         """One-step-ahead decoding of the GNMT decoder.
@@ -507,10 +520,10 @@ class NMTDecoder(HybridBlock, Seq2SeqDecoder):
         """
         has_mem_mask = (len(states) == 4)
         if has_mem_mask:
-            rnn_states, attention_output, mem_value, mem_masks = states
+            rnn_states, attention_vec, mem_value, mem_masks = states
             mem_masks = F.expand_dims(mem_masks, axis=1)
         else:
-            rnn_states, attention_output, mem_value = states
+            rnn_states, attention_vec, mem_value = states
             mem_masks = None
         
         new_rnn_states = []
@@ -540,7 +553,7 @@ class NMTDecoder(HybridBlock, Seq2SeqDecoder):
         return rnn_out, new_states, step_additional_outputs
 
 
-def get_nmt_encoder_decoder(cell_type='lstm', attention_cell='scaled_luong', num_layers=3,
+def get_nmt_encoder_decoder(cell_type='lstm', attention_cell='dot', num_layers=3,
                              hidden_size=300, dropout=0.0, bidirectional=False,
                              i2h_weight_initializer=None, h2h_weight_initializer=None,
                              i2h_bias_initializer='zeros', h2h_bias_initializer='zeros',

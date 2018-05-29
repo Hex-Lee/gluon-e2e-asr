@@ -203,7 +203,11 @@ class Vocab(object):
     def _index_special_tokens(self, unknown_token, special_tokens):
         """Indexes unknown and reserved tokens."""
 
-        unknown_and_special_tokens = special_tokens + [unknown_token]
+        if unknown_token:
+            unknown_and_special_tokens = special_tokens + [unknown_token]
+        else:
+            unknown_and_special_tokens = special_tokens
+            
         for t in unknown_and_special_tokens:
             if not t in self._token_to_idx:
                 self._idx_to_token.append(t)
