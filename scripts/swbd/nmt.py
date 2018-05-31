@@ -43,10 +43,10 @@ from mxnet.gluon.data import DataLoader
 import gluonE2EASR.data.batchify as btf
 from gluonE2EASR.data.sampler import FixedBucketSampler
 from gluonE2EASR.model import BeamSearchScorer
-from gluonE2EASR.model.base_encoder_decoder import get_nmt_encoder_decoder
 from gluonE2EASR.log import setup_main_logger, log_mxnet_version
 from gluonE2EASR.vocab import Vocab
 
+from encoder_decoder import get_nmt_encoder_decoder
 from translation import NMTModel, BeamSearchTranslator
 from loss import SoftmaxCEMaskedLoss
 from bleu import compute_bleu
@@ -66,7 +66,7 @@ parser.add_argument('--tgt_rspecifier', type=str, help='training target sentence
 parser.add_argument('--src_sym', type=str, default=None, help='[optional] source vocab')
 parser.add_argument('--tgt_sym', type=str, default=None, help='target vocab.'
                                     'reserved words:'
-                                    '\'<bos>\': begin of sentance; \'<eos>\': end of sentance;' 
+                                    '\'<bos>\': begin of sentance; \'<eos>\': end of sentance;'
                                     '\'<unk>\': unknown token; \'<pad>\': padding token')
 
 parser.add_argument('--cv_src_rspecifier', type=str, help='valid data feature specifier(with kaldi scp/ark format)')
@@ -90,15 +90,15 @@ parser.add_argument('--test_batch_size', type=int, default=32, help='Test batch 
 parser.add_argument('--num_buckets', type=int, default=5, help='Bucket number')
 parser.add_argument('--bucket_ratio', type=float, default=0.0, help='Ratio for increasing the '
                                                                     'throughput of the bucketing')
-parser.add_argument('--src_max_len', type=int, default=100, help='Maximum length of the source '
+parser.add_argument('--src_max_len', type=int, default=500, help='Maximum length of the source '
                                                                 'sentence')
-parser.add_argument('--tgt_max_len', type=int, default=100, help='Maximum length of the target '
+parser.add_argument('--tgt_max_len', type=int, default=500, help='Maximum length of the target '
                                                                 'sentence')
 parser.add_argument('--optimizer', type=str, default='adam', help='optimization algorithm')
 parser.add_argument('--lr', type=float, default=1E-3, help='Initial learning rate')
 parser.add_argument('--lr_update_factor', type=float, default=0.5,
                     help='Learning rate decay factor')
-parser.add_argument('--clip', type=float, default=5.0, help='gradient clipping')
+# parser.add_argument('--clip', type=float, default=5.0, help='gradient clipping')
 parser.add_argument('--log_interval', type=int, default=100, metavar='N',
                     help='report interval')
 parser.add_argument('--save_dir', type=str, default='out_dir',
@@ -124,13 +124,13 @@ logger.info("Loding the data...")
 logger.info("==================")
 
 if args.src_sym is not None:
-    src_vocab = Vocab(vocab_file=args.src_sym, unknown_token=None, padding_token='<blk>', 
+    src_vocab = Vocab(vocab_file=args.src_sym, unknown_token=None, padding_token='<blk>',
                                               bos_token=None, eos_token=None)
 if args.tgt_sym is not None:
     tgt_vocab = Vocab(vocab_file=args.tgt_sym, padding_token='<blk>')
 
 logger.info("Train set:\n source:{}\n target:{}".format(args.src_rspecifier, args.tgt_rspecifier))
-data_train = Reader(args.src_rspecifier, args.tgt_rspecifier, 
+data_train = Reader(args.src_rspecifier, args.tgt_rspecifier,
                         tgt_vocab[tgt_vocab.bos_token], tgt_vocab[tgt_vocab.eos_token])
 
 logger.info("Valid set:\n source:{}\n target:{}".format(args.cv_src_rspecifier, args.cv_tgt_rspecifier))
@@ -142,9 +142,9 @@ data_val_lengths = data_val.get_valid_length()
 # data_test_lengths = data_test.get_valid_length()
 
 val_tgt_sentences = []
-for _, tgt_sentence, _, _, _, in data_val:
+for _, tgt_sentence, _, _, key_index, in data_val:
     tmp = [tgt_vocab.idx_to_token[ele] for ele in tgt_sentence[1:-1]]
-    val_tgt_sentences.append(tmp)
+    val_tgt_sentences.append([data_val.get_utt_key(key_index)] + tmp)
 
 with io.open(os.path.join(args.save_dir, 'val_gt.txt'), 'w') as of:
     for ele in val_tgt_sentences:
@@ -160,9 +160,12 @@ if args.num_gpus is None:
 else:
     ctx = [mx.gpu(i) for i in range(args.num_gpus)]
     use_gpu = True
-    
+
 logger.info(ctx)
 
+############################################
+########## Model construction ##############
+############################################
 encoder, decoder = get_nmt_encoder_decoder(hidden_size=args.hidden_size,
                                             dropout=args.dropout,
                                             num_layers=args.num_layers,
@@ -223,7 +226,7 @@ def evaluate(data_loader):
             xpu_tgt_valid_length = [ tgt_valid_length.as_in_context(ctx) ]
         # Calculating Loss
         batch_loss = []
-        for xpu_X, xpu_y, xpu_XL, xpu_yl in zip(xpu_src_seq, xpu_tgt_seq, 
+        for xpu_X, xpu_y, xpu_XL, xpu_yl in zip(xpu_src_seq, xpu_tgt_seq,
                                                           xpu_src_valid_length, xpu_tgt_valid_length):
             out, _ = model(xpu_X, xpu_y[:, :-1], xpu_XL, xpu_yl - 1) # remove <eos>
             loss = loss_function(out, xpu_y[:, 1:], xpu_yl - 1).mean().asscalar() # remove <bos>
@@ -318,7 +321,7 @@ def train():
 
             batch_loss = []
             with mx.autograd.record():
-                for xpu_X, xpu_y, xpu_XL, xpu_yl in zip(xpu_src_seq, xpu_tgt_seq, 
+                for xpu_X, xpu_y, xpu_XL, xpu_yl in zip(xpu_src_seq, xpu_tgt_seq,
                                                           xpu_src_valid_length, xpu_tgt_valid_length):
 
                     out, _ = model(xpu_X, xpu_y[:, :-1], xpu_XL, xpu_yl - 1) # remove <eos>
@@ -331,7 +334,7 @@ def train():
             # grads = [p.grad(ctx) for p in model.collect_params().values()]
             # gnorm = gluon.utils.clip_global_norm(grads, args.clip)
             gnorm = 0
-            
+
             trainer.step(1)
 
             src_wc = src_valid_length.sum().asscalar()

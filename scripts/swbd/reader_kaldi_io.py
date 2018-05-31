@@ -13,7 +13,7 @@ target: key word_sequence
 
 Note: should add <sos> and <eos> to the target sequence for enc-dec training
 '''
-def get_data_for_kaldi_io(source_rspecifier:str, target_rspecifier:str, bos:int, eos:int):
+def get_data_for_kaldi_io(source_rspecifier, target_rspecifier, bos=None, eos=None):
     src = {}
     tgt = {}
     for key,mat in kaldi_io.read_mat_ark(source_rspecifier):
@@ -55,7 +55,7 @@ data: shape (max_length, feature_size)
 label: shape (max_llength, )
 '''
 class Reader(Dataset):
-    def __init__(self, source_rspecifier, target_rspecifier, bos=0, eos=1):
+    def __init__(self, source_rspecifier, target_rspecifier, bos=None, eos=None):
         super(Reader, self).__init__()
         self.data, self.label, self.length, self.llength, self.utt_keys = get_data_for_kaldi_io(source_rspecifier, target_rspecifier, bos=bos, eos=eos)
         self.input_dim = self.data[0].shape[1]

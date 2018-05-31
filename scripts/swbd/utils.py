@@ -24,10 +24,10 @@ import inspect
 
 def split_and_load(data, ctx):
     n, k = data.shape[0], len(ctx)
-    m = n // k
+    if n < k:
+        return [data[:].as_in_context(ctx[0])
 
-    if m * k != n:
-        res = [data[i * m: (i + 1) * m].as_in_context(ctx[i]) for i in range(k-1)]
-        res.append(data[(k-1)*m : n].as_in_context(ctx[k-1]))
-        return res
-    return [data[i*m: (i + 1)*m].as_in_context(ctx[i]) for i in range(k)]
+    m = n // k
+    data_split = [data[i * m: (i + 1) * m].as_in_context(ctx[i]) for i in range(k-1)]
+    data_split.append(data[(k-1)*m : n].as_in_context(ctx[k-1]))
+    return data_split
