@@ -104,10 +104,6 @@ class Vocab(object):
                  bos_token=C.BOS_TOKEN, eos_token=C.EOS_TOKEN,
                  reserved_tokens=None):
 
-        logger.info("=======================")
-        logger.info("Initializing the Vocab:")
-        logger.info("=======================")
-
         # Sanity checks.
         assert min_freq > 0, '`min_freq` must be set to a positive value.'
 

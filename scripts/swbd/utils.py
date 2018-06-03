@@ -18,16 +18,26 @@
 # under the License.
 """Utility functions."""
 
-import os
+import os, errno
 import logging
 import inspect
 
 def split_and_load(data, ctx):
     n, k = data.shape[0], len(ctx)
     if n < k:
-        return [data[:].as_in_context(ctx[0])
+        return [ data[:].as_in_context(ctx[0]) ]
 
     m = n // k
     data_split = [data[i * m: (i + 1) * m].as_in_context(ctx[i]) for i in range(k-1)]
     data_split.append(data[(k-1)*m : n].as_in_context(ctx[k-1]))
     return data_split
+
+def symlink_force(target, link_name):
+    try:
+        os.symlink(target, link_name)
+    except OSError as e:
+        if e.errno == errno.EEXIST:
+            os.remove(link_name)
+            os.symlink(target, link_name)
+        else:
+            raise e

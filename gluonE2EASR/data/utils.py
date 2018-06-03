@@ -21,6 +21,8 @@
 from __future__ import absolute_import
 from __future__ import print_function
 
+__all__ = ['DefaultLookupDict']
+
 class DefaultLookupDict(dict):
     """Dictionary class with fall-back look-up with default value set in the constructor."""
 

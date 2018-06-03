@@ -5,7 +5,7 @@ from mxnet.base import _as_list
 from mxnet.gluon import nn, rnn
 from mxnet.gluon.block import Block, HybridBlock
 from gluonE2EASR.model.base_encoder_decoder import Seq2SeqEncoder, Seq2SeqDecoder
-from gluonE2EASR.attention_cell import AttentionCell, MLPAttentionCell, DotProductAttentionCell
+from gluonE2EASR.model.attention_cell import AttentionCell, MLPAttentionCell, DotProductAttentionCell
 
 def _get_cell_type(cell_type):
     """Get the object type of the cell by parsing the input
@@ -159,7 +159,7 @@ class NMTEncoder(Seq2SeqEncoder):
         assert num_bi_layers <= num_layers,\
             'Number of bidirectional layers must be smaller than the total number of layers, ' \
             'num_bi_layers={}, num_layers={}'.format(num_bi_layers, num_layers)
-        assert (num_bi_layers and hidden_size % 2 == 0),\
+        assert (hidden_size % 2 == 0) or (num_bi_layers==0) ,\
             'If use bidirectional rnn, the hidden_size should be divided by 2, ' \
             'num_bi_layers={}, hidden_size={}'.format(num_bi_layers, hidden_size)
 
@@ -277,8 +277,8 @@ class NMTDecoder(HybridBlock, Seq2SeqDecoder):
         Created if `None`.
     """
     def __init__(self, cell_type='lstm', attention_cell='scaled_luong',
-                 num_layers=3, hidden_size=300,
-                 dropout=0.0, output_attention=False,
+                 num_layers=3, hidden_size=300, dropout=0.0, 
+                 use_residual=False, output_attention=False,
                  i2h_weight_initializer=None, h2h_weight_initializer=None,
                  i2h_bias_initializer='zeros', h2h_bias_initializer='zeros',
                  prefix=None, params=None):
@@ -287,6 +287,7 @@ class NMTDecoder(HybridBlock, Seq2SeqDecoder):
         self._num_layers = num_layers
         self._hidden_size = hidden_size
         self._dropout = dropout
+        self._use_residual = use_residual
         self._output_attention = output_attention
         with self.name_scope():
             self.attention_cell = _get_attention_cell(attention_cell, units=hidden_size)
@@ -319,10 +320,21 @@ class NMTDecoder(HybridBlock, Seq2SeqDecoder):
             - mem_value : NDArray
             - mem_masks : NDArray, optional
         """
-        mem_value, init_rnn_states = encoder_outputs
+        mem_value, enc_rnn_states = encoder_outputs
         batch_size, mem_length, mem_size = mem_value.shape
         init_attention_vec = mx.nd.zeros(shape=(batch_size, mem_size), ctx=mem_value.context)
-        init_decoder_states = [init_rnn_states, init_attention_vec, mem_value]
+
+        num_enc_layers = len(enc_rnn_states)
+        if num_enc_layers > self._num_layers:
+            init_dec_rnn_states = enc_rnn_states[num_enc_layers - self._num_layers : ]
+        elif num_enc_layers < self._num_layers:
+            init_dec_rnn_states = enc_rnn_states
+            for i in range(self._num_layers - num_enc_layers):
+                init_dec_rnn_states.append(enc_rnn_states[-1])
+        else:
+            init_dec_rnn_states = enc_rnn_states
+
+        init_decoder_states = [init_dec_rnn_states, init_attention_vec, mem_value]
 
         if encoder_valid_length is not None:
             '''
@@ -451,8 +463,8 @@ class NMTDecoder(HybridBlock, Seq2SeqDecoder):
         for i in range(0, len(self.rnn_cells)):
             rnn_out, layer_state = self.rnn_cells[i](curr_input, rnn_states[i])
             rnn_out = self.dropout_layer(rnn_out)
-            # if self._use_residual:
-            #     rnn_out = rnn_out + curr_input
+            if self._use_residual:
+                rnn_out = rnn_out + curr_input
             # Append new RNN state
             curr_input = rnn_out
             new_rnn_states.append(layer_state)
@@ -472,21 +484,23 @@ class NMTDecoder(HybridBlock, Seq2SeqDecoder):
         return rnn_out, new_states, step_additional_outputs
 
 
-def get_nmt_encoder_decoder(cell_type='lstm', attention_cell='dot', num_layers=3,
-                             num_bi_layers=0, hidden_size=300, dropout=0.0, use_residual=False,
-                             i2h_weight_initializer=None, h2h_weight_initializer=None,
-                             i2h_bias_initializer='zeros', h2h_bias_initializer='zeros',
-                             prefix='gnmt_', params=None):
+def get_nmt_encoder_decoder(cell_type='lstm', attention_cell='dot', num_enc_layers=3,
+                             num_enc_bi_layers=0, num_dec_layers=3, hidden_size=300, dropout=0.0, 
+                             use_residual=False, i2h_weight_initializer=None, 
+                             h2h_weight_initializer=None, i2h_bias_initializer='zeros', 
+                             h2h_bias_initializer='zeros', prefix='gnmt_', params=None):
     """Build a pair of GNMT encoder/decoder
 
     Parameters
     ----------
     cell_type : str or type
     attention_cell : str or AttentionCell
-    num_layers : int
+    num_enc_layers: int
+    num_enc_bi_layers: int
+    num_dec_layes : int
     hidden_size : int
     dropout : float
-    bidirectional : bool
+    use_residual : bool
     i2h_weight_initializer : mx.init.Initializer or None
     h2h_weight_initializer : mx.init.Initializer or None
     i2h_bias_initializer : mx.init.Initializer or None
@@ -499,16 +513,16 @@ def get_nmt_encoder_decoder(cell_type='lstm', attention_cell='dot', num_layers=3
     encoder : NMTEncoder
     decoder : NMTDecoder
     """
-    encoder = NMTEncoder(cell_type=cell_type, num_layers=num_layers,
-                          num_bi_layers=num_bi_layers, hidden_size=hidden_size,
+    encoder = NMTEncoder(cell_type=cell_type, num_layers=num_enc_layers,
+                          num_bi_layers=num_enc_bi_layers, hidden_size=hidden_size,
                           dropout=dropout, use_residual=use_residual,
                           i2h_weight_initializer=i2h_weight_initializer,
                           h2h_weight_initializer=h2h_weight_initializer,
                           i2h_bias_initializer=i2h_bias_initializer,
                           h2h_bias_initializer=h2h_bias_initializer,
                           prefix=prefix + 'enc_', params=params)
-    decoder = NMTDecoder(cell_type=cell_type, attention_cell=attention_cell, num_layers=num_layers,
-                          hidden_size=hidden_size, dropout=dropout,
+    decoder = NMTDecoder(cell_type=cell_type, attention_cell=attention_cell, num_layers=num_dec_layers,
+                          hidden_size=hidden_size, dropout=dropout, use_residual=use_residual,
                           i2h_weight_initializer=i2h_weight_initializer,
                           h2h_weight_initializer=h2h_weight_initializer,
                           i2h_bias_initializer=i2h_bias_initializer,

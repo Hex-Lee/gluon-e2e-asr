@@ -33,17 +33,17 @@ def get_data_for_kaldi_io(source_rspecifier, target_rspecifier, bos=None, eos=No
             tmp_length.append(len(feature))
 
             if bos and eos:
-                tgt_extend = np.concatenate(([bos], tgt[key], [eos]), axis=0)
+                tgt_extend = np.concatenate(([bos], tgt[key], [eos]), axis=0).astype('int32')
             else:
                 logger.warning('The target sequence has no <bos> and <eos> extend!')
-                tgt_extend = tgt[key]
+                tgt_extend = tgt[key].astype('int32')
 
             tmp_label.append(tgt_extend)
             tmp_llength.append(len(tgt_extend))
             tmp_key.append(key)
-            cnt+=1
-            if cnt==100:
-                break
+            # cnt+=1
+            # if cnt==10:
+            #     break
         else:
             logger.warning("{:s} has no label".format(key))
             pass
