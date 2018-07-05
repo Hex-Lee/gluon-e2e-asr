@@ -23,11 +23,12 @@ __all__ = ['NMTModel', 'BeamSearchTranslator']
 
 import warnings
 import numpy as np
-from mxnet.gluon import Block
-from mxnet.gluon import nn
+from mxnet.gluon import HybridBlock, Block
+from mxnet.gluon import nn, rnn
 import mxnet as mx
 from gluonE2EASR.model import BeamSearchScorer, BeamSearchSampler
 
+import sys
 
 class NMTModel(Block):
     """Model for Neural Machine Translation.
@@ -271,3 +272,72 @@ class BeamSearchTranslator(object):
                             val=self._model.tgt_vocab.token_to_idx[self._model.tgt_vocab.bos_token])
         samples, scores, sample_valid_length = self._sampler(inputs, decoder_states)
         return samples, scores, sample_valid_length
+
+class Nnet(HybridBlock):
+    """Model for Neural Machine Translation.
+
+    Parameters
+    ----------
+    units : int
+        Dimensionality of the output space.
+    hidden_size: int, default 512
+        The number of features in the hidden state h.
+    cell_type : str, [ lstm | bilstm | gru ]
+        The rnn cell type
+    num_layers : int, default 3
+        Number of recurrent layers.      
+    dropout : float, default 0.0
+        Dropout rate of the embedding weights.(or RNN layers)
+    in_units : int, optional
+        Size of the input data. If not specified, initialization will be
+        deferred to the first time `forward` is called and `in_units`
+        will be inferred from the shape of input data.
+    prefix : str or None
+        See document of `Block`.
+    params : ParameterDict or None
+        See document of `Block`.
+    """
+    def __init__(self, units, hidden_size=512, cell_type='lstm', num_layers=3, 
+                 dropout=0.0, in_units=0, src_embed=None, prefix=None, **kwargs):
+        super(NMTModel, self).__init__(prefix=prefix, params=params)
+
+        # Construct src embedding
+        if src_embed is None:
+            assert in_units != 0, '"in_units" cannot be None if "src_embed" is not ' \
+                                           'given.'
+            with self.name_scope():
+                self.src_embed = nn.HybridSequential(prefix='src_embed_')
+                with self.src_embed.name_scope():
+                    self.src_embed.add(nn.Embedding(input_dim=in_units, output_dim=hidden_size))
+                    self.src_embed.add(nn.Dropout(rate=dropout))
+        else:
+            self.src_embed = src_embed
+
+        # Construct tgt proj
+        if tgt_proj is None:
+            with self.name_scope():
+                self.tgt_proj = nn.Dense(units=units, flatten=False, prefix='tgt_proj_')
+        else:
+            self.tgt_proj = tgt_proj
+
+        # Construct RNN layes
+        if cell_type == 'lstm':
+            with self.name_scope():
+                self.net = rnn.LSTM(hidden_size=hidden_size, num_layers=num_layers, layout='NTC', bidirectional=False)
+        elif cell_type == 'bilstm':
+            with self.name_scope():
+                self.net = rnn.LSTM(hidden_size=hidden_size, num_layers=num_layers, layout='NTC', bidirectional=True)
+        elif cell_type == 'gru':
+            with self.name_scope():
+                self.net = rnn.GRU(hidden_size=hidden_size, num_layers=num_layers, layout='NTC', bidirectional=False)
+        elif cell_type == 'bigru':
+            with self.name_scope():
+                self.net = rnn.GRU(hidden_size=hidden_size, num_layers=num_layers, layout='NTC', bidirectional=True)
+        else:
+            print('Not supported layer type: {}'.format(cell_type))
+            sys.exit(0)
+
+    def hybrid_forward(self, F, inputs):
+        embed = self.src_embed(inputs)
+        net_out = self.net(embed)
+        return self.tgt_proj(net_out)
