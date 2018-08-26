@@ -37,85 +37,21 @@ from . import _constants as C
 logger = logging.getLogger(__name__)
 
 class Vocab(object):
-    """Indexing for text tokens. 
-        The default and reserved tokens will append at the end of normal tokes.
-
-    Parameters
-    ----------
-    counter : Counter or None, default None
-        Counts text token frequencies in the text data. Its keys will be indexed according to
-        frequency thresholds such as `max_size` and `min_freq`. Keys of `counter`,
-        `unknown_token`, and values of `reserved_tokens` must be of the same hashable type.
-        Examples: str, int, and tuple.
-    max_size : None or int, default None
-        The maximum possible number of the most frequent tokens in the keys of `counter` that can be
-        indexed. Note that this argument does not count any token from `reserved_tokens`. Suppose
-        that there are different keys of `counter` whose frequency are the same, if indexing all of
-        them will exceed this argument value, such keys will be indexed one by one according to
-        their __cmp__() order until the frequency threshold is met. If this argument is None or
-        larger than its largest possible value restricted by `counter` and `reserved_tokens`, this
-        argument has no effect.
-    min_freq : int, default 1
-        The minimum frequency required for a token in the keys of `counter` to be indexed.
-    vocab_file: None or str, default None
-        The user's custom vocabulary file for text file, can be "token index" for each line.
-    unknown_token : hashable object or None, default '<unk>'
-        The representation for any unknown token. In other words, any unknown token will be indexed
-        as the same representation. If None, looking up an unknown token will result in KeyError.
-    padding_token : hashable object or None, default '<pad>'
-        The representation for the special token of padding token.
-    bos_token : hashable object or None, default '<bos>'
-        The representation for the special token of beginning-of-sequence token.
-    eos_token : hashable object or None, default '<eos>'
-        The representation for the special token of end-of-sequence token.
-    reserved_tokens : list of hashable objects or None, default None
-        A list of reserved tokens (excluding `unknown_token`) that will always be indexed, such as
-        special symbols representing padding, beginning of sentence, and end of sentence. It cannot
-        contain `unknown_token` or duplicate reserved tokens. Keys of `counter`, `unknown_token`,
-        and values of `reserved_tokens` must be of the same hashable type. Examples: str, int, and
-        tuple.
-
-    Attributes
-    ----------
-    idx_to_token : list of strs
-        A list of indexed tokens where the list indices and the token indices are aligned.
-    reserved_tokens : list of strs or None
-        A list of reserved tokens that will always be indexed.
-    token_to_idx : dict mapping str to int
-        A dict mapping each token to its index integer.
-    unknown_token : hashable object or None
-        The representation for any unknown token. In other words, any unknown token will be indexed
-        as the same representation.
-
-
-    Examples
-    --------
-
-    >>> text_data = " hello world \\\\n hello nice world \\\\n hi world \\\\n"
-    >>> counter = gluonnlp.data.count_tokens(text_data)
-    >>> my_vocab = gluonnlp.Vocab(counter)
-
-    >>> my_vocab[['hello', 'world']]
-    [5, 4]
-    """
-
-    def __init__(self, counter=None, max_size=None, min_freq=1, vocab_file=None, 
+    def __init__(self, vocab_file=None, 
                  unknown_token=C.UNK_TOKEN, padding_token=C.PAD_TOKEN, 
                  bos_token=C.BOS_TOKEN, eos_token=C.EOS_TOKEN,
                  reserved_tokens=None):
 
-        # Sanity checks.
-        assert min_freq > 0, '`min_freq` must be set to a positive value.'
-
-        special_tokens = []
         self._unknown_token = unknown_token
         self._padding_token = padding_token
+        self._bos_token = bos_token
+        self._eos_token = eos_token
+        
+        special_tokens = []
         if padding_token:
             special_tokens.append(padding_token)
-        self._bos_token = bos_token
         if bos_token:
             special_tokens.append(bos_token)
-        self._eos_token = eos_token
         if eos_token:
             special_tokens.append(eos_token)
         if reserved_tokens:
@@ -134,22 +70,11 @@ class Vocab(object):
             self._reserved_tokens = special_tokens[:]
 
         self._idx_to_token = []
+        self._token_to_idx = DefaultLookupDict()
 
-        if unknown_token:
-            # by defalut <unk> token with index 0
-            self._token_to_idx = DefaultLookupDict(C.UNK_IDX) 
-        else:
-            self._token_to_idx = DefaultLookupDict()
-
-        if vocab_file:
-            logger.info("Use the custom vocab_file: {}".format(vocab_file))
-            self._load_vocab_file_with_index(vocab_file)
-        elif counter:
-            logger.info("Use counter to automatic construct vocabulary, with max_size:{} min_freq:{}".format(max_size, min_freq))
-            self._index_counter_keys(counter, unknown_token, special_tokens, max_size, min_freq) 
-        else:
-            logger.info("Construct Vocab without counter or vocab_file")
-        
+        asset vocab_file is not None, 'lack of vocabulary file!'
+        logger.info("Use the custom vocab_file: {}".format(vocab_file))
+        self._load_vocab_file_with_index(vocab_file)      
         self._index_special_tokens(unknown_token, special_tokens)
 
     def _load_vocab_file_with_index(self, vocab_file):
@@ -162,39 +87,13 @@ class Vocab(object):
         """
         with open(vocab_file, 'r') as f:
             lines = f.readlines()
-            for line in lines:
+            for i, line in enumerate(lines):
                 line = line.strip().split()
                 token = line[0]
                 index = int(line[1])
+                assert index==i, 'the vocab file index is not continuous, lack of {}'.format(i)
                 self._idx_to_token.append(token)
                 self._token_to_idx[token] = index
-
-    def _index_counter_keys(self, counter, unknown_token, special_tokens, max_size,
-                            min_freq):
-        """Indexes keys of `counter`.
-
-
-        Indexes keys of `counter` according to frequency thresholds such as `max_size` and
-        `min_freq`.
-        """
-
-        unknown_and_special_tokens = set(special_tokens) if special_tokens else set()
-
-        if unknown_token:
-            unknown_and_special_tokens.add(unknown_token)
-
-        token_freqs = sorted(counter.items(), key=lambda x: x[0])
-        token_freqs.sort(key=lambda x: x[1], reverse=True)
-
-        token_cap = len(unknown_and_special_tokens) + (
-            len(counter) if not max_size else max_size)
-
-        for token, freq in token_freqs:
-            if freq < min_freq or len(self._idx_to_token) == token_cap:
-                break
-            if token not in unknown_and_special_tokens:
-                self._idx_to_token.append(token)
-                self._token_to_idx[token] = len(self._idx_to_token) - 1
 
     def _index_special_tokens(self, unknown_token, special_tokens):
         """Indexes unknown and reserved tokens."""
@@ -386,7 +285,8 @@ class Vocab(object):
         vocab_dict = json.loads(json_str)
 
         unknown_token = vocab_dict.get('unknown_token')
-        vocab = Vocab(unknown_token=unknown_token)
+        vocab = Vo
+        cab(unknown_token=unknown_token)
         vocab._idx_to_token = vocab_dict.get('idx_to_token')
         vocab._token_to_idx = vocab_dict.get('token_to_idx')
         if unknown_token:

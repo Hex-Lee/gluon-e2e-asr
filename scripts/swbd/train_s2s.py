@@ -288,11 +288,16 @@ encoder, decoder = get_simple_encoder_decoder(cell_type=args.cell,
 input_dim = len(src_vocab) if args.src_sym is not None else 0
 src_embed = gluon.nn.HybridSequential(prefix='src_embed_')
 with src_embed.name_scope():
-    src_embed.add(gluon.nn.Dense(args.hidden_size, in_units=input_dim,
-                                  weight_initializer=mx.init.Uniform(0.1), flatten=False))
+    src_embed.add(gluon.nn.Dense(args.hidden_size, in_units=input_dim, flatten=False))
+
+
+tgt_proj = gluon.nn.HybridSequential(prefix='tgt_proj_')
+with tgt_proj.name_scope():
+    tgt_proj.add(gluon.nn.Dense(args.hidden_size, flatten=False))
+    tgt_proj.add(gluon.nn.Dense(len(tgt_vocab), flatten=False))
 
 model = NMTModel(src_vocab=None, tgt_vocab=tgt_vocab, encoder=encoder, decoder=decoder,
-                 src_embed=src_embed, embed_size=args.hidden_size, prefix='gnmt_')
+                 src_embed=src_embed, tgt_proj=tgt_proj, embed_size=args.hidden_size, prefix='gnmt_')
 
 model.initialize(init=mx.init.Uniform(0.1), ctx=ctx)
 # model.hybridize()
