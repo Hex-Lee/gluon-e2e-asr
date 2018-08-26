@@ -20,7 +20,7 @@
 
 import numpy as np
 from mxnet.gluon.loss import SoftmaxCELoss
-from mxnet.gluon.loss import Loss, _apply_weighting
+from mxnet.gluon import HybridBlock, Block
 
 
 class SoftmaxCEMaskedLoss(SoftmaxCELoss):
@@ -51,7 +51,7 @@ class SoftmaxCEMaskedLoss(SoftmaxCELoss):
                                        axis=1)
         return super(SoftmaxCEMaskedLoss, self).hybrid_forward(F, pred, label, sample_weight)
 
-class CtcLoss(Loss):
+class CtcLoss(HybridBlock):
     r"""Connectionist Temporal Classification Loss.
 
 
@@ -108,24 +108,32 @@ class CtcLoss(Loss):
         Sequence Data with Recurrent Neural Networks
         `_
     """
-    def __init__(self, layout='NTC', label_layout='NT', weight=None, **kwargs):
+    def __init__(self, layout='NTC', label_layout='NT', **kwargs):
         assert layout in ['NTC', 'TNC'],\
                "Only 'NTC' and 'TNC' layouts for pred are supported. Got: %s"%layout
         assert label_layout in ['NT', 'TN'],\
                "Only 'NT' and 'TN' layouts for label are supported. Got: %s"%label_layout
         self._layout = layout
         self._label_layout = label_layout
-        batch_axis = label_layout.find('N')
-        super(CTCLoss, self).__init__(weight, batch_axis, **kwargs)
+        self._batch_axis = label_layout.find('N')
+        super(CtcLoss, self).__init__(**kwargs)
 
     def hybrid_forward(self, F, pred, label,
-                       pred_lengths=None, label_lengths=None, sample_weight=None, blank_label='first'):
+                       pred_lengths=None, label_lengths=None, blank_label='first'):
         if self._layout == 'NTC':
             pred = F.swapaxes(pred, 0, 1)
         if self._batch_axis == 1:
             label = F.swapaxes(label, 0, 1)
-        loss = F.contrib.CTCLoss(pred, label, pred_lengths, label_lengths,
+
+        # label = label.astype(np.dtype('int32'))
+        # pred_lengths = pred_lengths.astype(np.dtype('int32'))
+        # label_lengths = label_lengths.astype(np.dtype('int32'))
+        # return F.contrib.warpctc_loss(data=pred, label=label, 
+        #                          data_lengths=pred_lengths, 
+        #                          label_lengths=label_lengths)
+        return F.contrib.ctc_loss(data=pred, label=label, 
+                                 data_lengths=pred_lengths, 
+                                 label_lengths=label_lengths,
                                  use_data_lengths=pred_lengths is not None,
                                  use_label_lengths=label_lengths is not None,
-                                 blank_label=blank_label)
-        return _apply_weighting(F, loss, self._weight, sample_weight)
+                                 blank_label='first')   

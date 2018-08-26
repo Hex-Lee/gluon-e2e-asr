@@ -130,7 +130,7 @@ class FixedBucketSampler(Sampler):
       batch_size=[44, 20, 13, 10, 8, 8, 8, 8, 8, 8]
     """
     def __init__(self, lengths, batch_size, num_buckets=10, bucket_keys=None,
-                 ratio=0, shuffle=False):
+                 ratio=0, shuffle=False, reverse=True):
         assert len(lengths) > 0, 'FixedBucketSampler does not support empty lengths.'
         assert batch_size > 0, 'Batch size must be larger than 0.'
         assert ratio >= 0, 'batch size scaling ratio cannot be negative.'
@@ -208,6 +208,10 @@ class FixedBucketSampler(Sampler):
                         self._bucket_batch_sizes[::-1]):
             for i in range(0, len(sample_ids), bucket_batch_size):
                 self._batch_infos.append((bucket_id, i))
+
+        if not reverse:
+            self._batch_infos = sorted(self._batch_infos, key=lambda x:x[0])
+            
 
     def __iter__(self):
         if self._shuffle:

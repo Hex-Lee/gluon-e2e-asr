@@ -47,7 +47,7 @@ from gluonE2EASR.model import BeamSearchScorer
 from gluonE2EASR.log import setup_main_logger, log_mxnet_version
 from gluonE2EASR.vocab import Vocab
 
-from encoder_decoder import get_nmt_encoder_decoder
+from simple_encoder_decoder import get_simple_encoder_decoder
 from model import NMTModel, BeamSearchTranslator
 from loss import SoftmaxCEMaskedLoss
 from bleu import compute_bleu
@@ -55,7 +55,6 @@ from wer import compute_wer
 
 from reader_kaldi_io import Reader
 import utils
-import _constants as _C
 
 np.random.seed(100)
 random.seed(100)
@@ -68,55 +67,57 @@ parser = argparse.ArgumentParser(description='SwithBorad 300h End-to-End ASR Exa
                                              'We train the Google NMT model')
 parser.add_argument('--src_rspecifier', type=str, help='training feature specifier(with kaldi scp/ark format)')
 parser.add_argument('--tgt_rspecifier', type=str, help='training target sentences specifier(with kaldi scp/ark format)')
+parser.add_argument('--cv_src_rspecifier', type=str, help='valid data feature specifier(with kaldi scp/ark format)')
+parser.add_argument('--cv_tgt_rspecifier', type=str, help='valid target sentences specifier(with kaldi scp/ark format)')
+
 parser.add_argument('--src_sym', type=str, default=None, help='[optional] source vocab')
 parser.add_argument('--tgt_sym', type=str, default=None, help='target vocab.'
                                     'reserved words:'
                                     '\'<bos>\': begin of sentance; \'<eos>\': end of sentance;'
                                     '\'<unk>\': unknown token; \'<pad>\': padding token')
 
-parser.add_argument('--cv_src_rspecifier', type=str, help='valid data feature specifier(with kaldi scp/ark format)')
-parser.add_argument('--cv_tgt_rspecifier', type=str, help='valid target sentences specifier(with kaldi scp/ark format)')
 
-parser.add_argument('--epochs', type=int, default=20, help='upper epoch limit')
-parser.add_argument('--hidden_size', type=int, default=300, help='Dimension of the embedding '
-                                                                'vectors and states.')
-parser.add_argument('--dropout', type=float, default=0,
-                    help='dropout applied to layers (0 = no dropout)')
-parser.add_argument('--residual', type=bool, default=False,
-                    help='use residual in encoder and decoder or not')
-
+parser.add_argument('--init_model', type=str, default='', help='the initail model other than randon initailize')
+parser.add_argument('--cell', type=str, default='lstm', help='the cell type [ lstm | gru ]')
+parser.add_argument('--attention', type=str, default='dot', help='the cell type [ scaled_luong, normed_mlp, dot ]')
+parser.add_argument('--hidden_size', type=int, default=300, help='Dimension of the embedding vectors and states.')
+parser.add_argument('--dropout', type=float, default=0, help='dropout applied to layers (0 = no dropout)')
 parser.add_argument('--num_enc_layers', type=int, default=3, help='number of layers in the encoder')
-parser.add_argument('--num_enc_bi_layers', type=int, default=0,
-                    help='number of bidirectional layers in the encoder')
 parser.add_argument('--num_dec_layers', type=int, default=3, help='number of layers in the decoder')
+parser.add_argument('--enc_bidirectional', default=False, action='store_true', help='enc_bidirectional')
+parser.add_argument('--dec_bidirectional', default=False, action='store_true', help='dec_bidirectional')
 
-parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
 parser.add_argument('--beam_size', type=int, default=1, help='Beam size')
-parser.add_argument('--lp_alpha', type=float, default=1.0,
-                    help='Alpha used in calculating the length penalty')
+parser.add_argument('--lp_alpha', type=float, default=1.0, help='Alpha used in calculating the length penalty')
 parser.add_argument('--lp_k', type=int, default=5, help='K used in calculating the length penalty')
-parser.add_argument('--num_buckets', type=int, default=5, help='Bucket number')
-parser.add_argument('--bucket_ratio', type=float, default=0.0, help='Ratio for increasing the '
-                                                                    'throughput of the bucketing')
-parser.add_argument('--src_max_len', type=int, default=100, help='Maximum length of the source '
-                                                                'sentence')
-parser.add_argument('--tgt_max_len', type=int, default=100, help='Maximum length of the target '
-                                                                'sentence')
-parser.add_argument('--optimizer', type=str, default='adam', help='optimization algorithm')
-parser.add_argument('--lr', type=float, default=1E-3, help='Initial learning rate')
-parser.add_argument('--lr_update_factor', type=float, default=0.5,
-                    help='Learning rate decay factor')
 
-parser.add_argument('--use_grad_clip', type=bool, default=False, help='whether to use gradient clipping')
+parser.add_argument('--num_gpus', type=int, default=None, help='number of the gpu to use. Set it to empty means to use cpu.')
+parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
+parser.add_argument('--num_buckets', type=int, default=5, help='Bucket number')
+parser.add_argument('--bucket_ratio', type=float, default=0.0, help='Ratio for increasing the throughput of the bucketing')
+parser.add_argument('--src_max_len', type=int, default=100, help='Maximum length of the source sentence(unuse)')
+parser.add_argument('--tgt_max_len', type=int, default=100, help='Maximum length of the target sentence')
+parser.add_argument('--train_shuffle', default=False, action='store_true', help='shuffle the train data')
+parser.add_argument('--ascending', dest='descending', action='store_false', 
+                                    help='Train the data with ascending order (useless when setting shuffle)')
+parser.add_argument('--descending', dest='descending', action='store_true', 
+                                    help='Train the data with descending order (useless when setting shuffle)')
+parser.set_defaults(descending=True)
+
+parser.add_argument('--optimizer', type=str, default='sgd', help='optimization algorithm')
+parser.add_argument('--lr', type=float, default=1E-3, help='Initial learning rate')
+parser.add_argument('--lr_update_factor', type=float, default=0.5, help='Learning rate decay factor')
+parser.add_argument('--momentum', type=float, default=0.0, help='momentum')
+parser.add_argument('--use_grad_clip', default=False, action='store_true', help='use gradient clipping')
 parser.add_argument('--clip', type=float, default=5.0, help='gradient clipping')
 
-parser.add_argument('--log_interval', type=int, default=100, metavar='N',
-                    help='report interval')
-parser.add_argument('--save_dir', type=str, default='exp_debug',
-                    help='directory path to save the final model and training log')
-parser.add_argument('--num_gpus', type=int, default=None,
-                    help='number of the gpu to use. Set it to empty means to use cpu.')
+parser.add_argument('--max_epochs', type=int, default=20, help='upper epoch limit')
+parser.add_argument('--halving_after_epoch', type=int, default=1, help='halving lr becomes enabled after this many epochs') 
+parser.add_argument('--terminal_after_epoch', type=int, default=3, help='early terminal when the cv loss do not '
+                                                                        'descrease after this many epochs') 
 
+parser.add_argument('--log_interval', type=int, default=100, metavar='N', help='report interval')
+parser.add_argument('--save_dir', type=str, default='exp_debug', help='directory path to save the final model and training log')
 
 def evaluate(data_loader):
     """Evaluate given the data loader
@@ -145,9 +146,9 @@ def evaluate(data_loader):
         xpu_tgt_valid_length = utils.split_and_load(tgt_valid_length, ctx)
 
         # Calculating Loss
-        batch_loss = []
         for xpu_X, xpu_y, xpu_XL, xpu_yl in zip(xpu_src_seq, xpu_tgt_seq,
                                                           xpu_src_valid_length, xpu_tgt_valid_length):
+            # print(xpu_X.shape, xpu_y.shape, xpu_XL.shape, xpu_yl.shape)
             out, _ = model(xpu_X, xpu_y[:, :-1], xpu_XL, xpu_yl - 1) # remove <eos>
             loss = loss_function(out, xpu_y[:, 1:], xpu_yl - 1).mean().asscalar() # remove <bos>
 
@@ -217,23 +218,23 @@ logger.info("==================")
 if args.src_sym is not None:
     src_vocab = Vocab(vocab_file=args.src_sym, unknown_token=None, padding_token='<blk>',
                                               bos_token=None, eos_token=None)
-if args.tgt_sym is not None:
-    tgt_vocab = Vocab(vocab_file=args.tgt_sym, padding_token='<blk>')
+
+tgt_vocab = Vocab(vocab_file=args.tgt_sym, padding_token='<blk>')
 
 logger.info("Train set:\n source:{}\n target:{}".format(args.src_rspecifier, args.tgt_rspecifier))
 data_train = Reader(args.src_rspecifier, args.tgt_rspecifier,
-                        tgt_vocab[tgt_vocab.bos_token], tgt_vocab[tgt_vocab.eos_token])
+                    tgt_vocab[tgt_vocab.bos_token], tgt_vocab[tgt_vocab.eos_token], ctc=False)
 
 logger.info("Valid set:\n source:{}\n target:{}".format(args.cv_src_rspecifier, args.cv_tgt_rspecifier))
 data_val = Reader(args.cv_src_rspecifier, args.cv_tgt_rspecifier,
-                        tgt_vocab[tgt_vocab.bos_token], tgt_vocab[tgt_vocab.eos_token])
+                  tgt_vocab[tgt_vocab.bos_token], tgt_vocab[tgt_vocab.eos_token], ctc=False)
 
 data_train_lengths = data_train.get_valid_length()
 data_val_lengths = data_val.get_valid_length()
 
 val_tgt_sentences = []
 for _, tgt_sentence, _, _, _, in data_val:
-    tmp = [tgt_vocab.idx_to_token[ele] for ele in tgt_sentence[1:-1]]
+    tmp = [tgt_vocab.idx_to_token[int(ele)] for ele in tgt_sentence[1:-1]]
     val_tgt_sentences.append(tmp)
 
 with io.open(os.path.join(valid_out_dir, 'val_gt.txt'), 'w') as of:
@@ -241,16 +242,18 @@ with io.open(os.path.join(valid_out_dir, 'val_gt.txt'), 'w') as of:
         of.write(' '.join(ele) + '\n')
 
 batchify_fn = btf.Tuple(btf.Pad(axis=0), btf.Pad(), btf.Stack(), btf.Stack(), btf.Stack())
+
 train_batch_sampler = FixedBucketSampler(lengths=data_train_lengths,
                                          batch_size=args.batch_size,
                                          num_buckets=args.num_buckets,
                                          ratio=args.bucket_ratio,
-                                         shuffle=True)
+                                         shuffle=args.train_shuffle,
+                                         reverse=args.descending)
 logger.info('Train Batch Sampler:\n{}'.format(train_batch_sampler.stats()))
 train_data_loader = DataLoader(data_train,
                                batch_sampler=train_batch_sampler,
                                batchify_fn=batchify_fn,
-                               num_workers=8)
+                               num_workers=1)
 
 val_batch_sampler =  FixedBucketSampler(lengths=data_val_lengths,
                                        batch_size=args.batch_size,
@@ -261,7 +264,7 @@ logger.info('Valid Batch Sampler:\n{}'.format(val_batch_sampler.stats()))
 val_data_loader = DataLoader(data_val,
                              batch_sampler=val_batch_sampler,
                              batchify_fn=batchify_fn,
-                             num_workers=8)
+                             num_workers=1)
 
 if args.num_gpus is None:
     ctx = [mx.cpu()]
@@ -273,27 +276,29 @@ logger.info(ctx)
 ############################################
 ############ Model construction ############
 ############################################
-encoder, decoder = get_nmt_encoder_decoder(hidden_size=args.hidden_size,
+encoder, decoder = get_simple_encoder_decoder(cell_type=args.cell,
+                                            attention_cell=args.attention,
+                                            hidden_size=args.hidden_size,
                                             dropout=args.dropout,
                                             num_enc_layers=args.num_enc_layers,
-                                            num_enc_bi_layers=args.num_enc_bi_layers,
                                             num_dec_layers=args.num_dec_layers,
-                                            use_residual=args.residual)
+                                            enc_bidirectional=args.enc_bidirectional,
+                                            dec_bidirectional=args.dec_bidirectional)
 # for 1-of-k or posterior input
+input_dim = len(src_vocab) if args.src_sym is not None else 0
 src_embed = gluon.nn.HybridSequential(prefix='src_embed_')
 with src_embed.name_scope():
-    src_embed.add(gluon.nn.Dense(args.hidden_size, in_units=len(src_vocab),
+    src_embed.add(gluon.nn.Dense(args.hidden_size, in_units=input_dim,
                                   weight_initializer=mx.init.Uniform(0.1), flatten=False))
 
-model = NMTModel(src_vocab=src_vocab, tgt_vocab=tgt_vocab, encoder=encoder, decoder=decoder,
+model = NMTModel(src_vocab=None, tgt_vocab=tgt_vocab, encoder=encoder, decoder=decoder,
                  src_embed=src_embed, embed_size=args.hidden_size, prefix='gnmt_')
 
 model.initialize(init=mx.init.Uniform(0.1), ctx=ctx)
 # model.hybridize()
 
 translator = BeamSearchTranslator(model=model, beam_size=args.beam_size,
-                                  scorer=BeamSearchScorer(alpha=args.lp_alpha,
-                                                          K=args.lp_k),
+                                  scorer=BeamSearchScorer(alpha=args.lp_alpha, K=args.lp_k),
                                   max_length=args.tgt_max_len)
 logger.info('Use beam_size={}, alpha={}, K={}'.format(args.beam_size, args.lp_alpha, args.lp_k))
 
@@ -315,11 +320,13 @@ logger.info('[Init] valid Loss={:.4f}, valid ppl={:.4f}, valid bleu={:.2f}, vali
 write_sentences(valid_translation_out,
                 os.path.join(valid_out_dir, 'epoch0_valid_out.txt'))
 
-save_path = os.path.join(model_dir, 'param.0')
-model.save_params(save_path)
+model_name = 'param.{:02d}_cv{:.2f}'.format(0, valid_loss)
+save_path = os.path.join(model_dir, model_name)
+
+model.save_parameters(save_path)
 logger.info('Save the initial model parameters to {}'.format(save_path))
 link_path = os.path.join(args.save_dir, 'valid_best.params')
-utils.symlink_force('params/param.0', link_path)
+utils.symlink_force('params/'+model_name, link_path)
 logger.info('Link best parameters {{ {} }} to {{ {} }}'.format(save_path, link_path))
 
 ############################################
@@ -327,26 +334,36 @@ logger.info('Link best parameters {{ {} }} to {{ {} }}'.format(save_path, link_p
 ############################################
 def train():
     """Training function."""
-    trainer = gluon.Trainer(model.collect_params(), args.optimizer, {'learning_rate': args.lr})
+    if args.optimizer == 'sgd':
+        train_opts = {'learning_rate': args.lr, 'momentum': args.momentum}
+    else:
+        train_opts = {'learning_rate': args.lr}
+
+    trainer = gluon.Trainer(model.collect_params(), args.optimizer, train_opts)
     
     logger.info("==================")
     logger.info("Start training...")
     logger.info("==================")
     best_valid_bleu = 0.0
-    for epoch_id in range(args.epochs):
+    best_valid_loss = 10000000
+    terminal_flag = 0
+    for epoch_id in range(args.max_epochs):
+        log_avg_seq_len = 0
         log_avg_loss = 0
         log_avg_gnorm = 0
         log_wc = 0
+        epoch_train_loss = 0
+        epoch_start_time = time.time()
         log_start_time = time.time()
         for batch_id, (src_seq, tgt_seq, src_valid_length, tgt_valid_length, _)\
                 in enumerate(train_data_loader):
             # logger.info(src_seq.context) Context suddenly becomes GPU.
+
             xpu_src_seq = utils.split_and_load(src_seq, ctx)
             xpu_tgt_seq = utils.split_and_load(tgt_seq, ctx)
             xpu_src_valid_length = utils.split_and_load(src_valid_length, ctx)
             xpu_tgt_valid_length = utils.split_and_load(tgt_valid_length, ctx)
 
-            batch_loss = []
             with mx.autograd.record():
                 for xpu_X, xpu_y, xpu_XL, xpu_yl in zip(xpu_src_seq, xpu_tgt_seq,
                                                           xpu_src_valid_length, xpu_tgt_valid_length):
@@ -355,8 +372,8 @@ def train():
                     loss = loss_function(out, xpu_y[:, 1:], xpu_yl - 1).mean() # remove <bos>
                     loss = loss * (xpu_y.shape[1] - 1) / (xpu_yl - 1).mean()
                     loss.backward()
-                    batch_loss.append(loss)
-                    # batch_loss += loss.asscalar()
+                    log_avg_loss += loss.asscalar()
+                    epoch_train_loss += loss.asscalar()
 
             gnorm = 0.0
             if args.use_grad_clip:
@@ -368,55 +385,62 @@ def train():
 
             src_wc = src_valid_length.sum().asscalar()
             tgt_wc = (tgt_valid_length - 1).sum().asscalar()
-            for l in batch_loss:
-              log_avg_loss += l.asscalar()
+
+            log_avg_seq_len += src_seq.shape[1]
             log_avg_gnorm += gnorm
             log_wc += src_wc + tgt_wc
             if (batch_id + 1) % args.log_interval == 0:
                 wps = log_wc / (time.time() - log_start_time)
                 logger.info('[Epoch {} Batch {}/{}] loss={:.4f}, ppl={:.4f}, gnorm={:.4f}, '
-                             'throughput={:.2f}K wps, wc={:.2f}K'
+                             'throughput={:.2f}K wps, wc={:.2f}K, sequence-length={:.2f}'
                              .format(epoch_id + 1, batch_id + 1, len(train_data_loader),
-                                     log_avg_loss / args.log_interval,
-                                     np.exp(log_avg_loss / args.log_interval),
-                                     log_avg_gnorm / args.log_interval,
-                                     wps / 1000, log_wc / 1000))
+                                     log_avg_loss / (args.log_interval * len(ctx)),
+                                     np.exp(log_avg_loss / (args.log_interval * len(ctx))),
+                                     log_avg_gnorm / (args.log_interval * len(ctx)),
+                                     wps / 1000, log_wc / 1000,
+                                     log_avg_seq_len / args.log_interval))
                 log_start_time = time.time()
+                log_avg_seq_len = 0
                 log_avg_loss = 0
                 log_avg_gnorm = 0
                 log_wc = 0
 
+        epoch_train_loss = epoch_train_loss / ( len(train_data_loader) * len(ctx) )
         valid_loss, valid_translation_out = evaluate(val_data_loader)
         valid_bleu_score, _, _, _, _ = compute_bleu([val_tgt_sentences], valid_translation_out)
         valid_wer = compute_wer(val_tgt_sentences, valid_translation_out)
-        logger.info('[Epoch {}] valid Loss={:.4f}, valid ppl={:.4f}, valid bleu={:.2f}, valid wer={:.2f}'
-                     .format(epoch_id + 1, valid_loss, np.exp(valid_loss), valid_bleu_score * 100, valid_wer * 100))
+        logger.info('[Epoch {}] time cost={:.1f}, lr={}, valid Loss={:.4f}, valid ppl={:.4f}, valid bleu={:.2f}, valid wer={:.2f}'
+                     .format(epoch_id + 1, time.time()-epoch_start_time, trainer.learning_rate,
+                        valid_loss, np.exp(valid_loss), valid_bleu_score * 100, valid_wer * 100))
         write_sentences(valid_translation_out,
                         os.path.join(valid_out_dir, 'epoch{:d}_valid_out.txt').format(epoch_id + 1))
-        save_path = os.path.join(model_dir, 'param.{}'.format(epoch_id + 1))
+        
+        model_name = 'param.{:02d}.tr{:.2f}_cv{:.2f}'.format(epoch_id + 1, epoch_train_loss, valid_loss)
+        save_path = os.path.join(model_dir, model_name)
+        model.save_parameters(save_path)
         logger.info('Save the Epoch {} parameters to {}'.format(epoch_id + 1, save_path))
-        model.save_params(save_path)
 
-        if valid_bleu_score > best_valid_bleu:
-            best_valid_bleu = valid_bleu_score
-            utils.symlink_force('params/param.{}'.format(epoch_id + 1), link_path)
+        # if valid_bleu_score > best_valid_bleu:
+        #     best_valid_bleu = valid_bleu_score
+        if valid_loss < best_valid_loss:
+            best_valid_loss = valid_loss
+            utils.symlink_force('params/'+model_name, link_path)
             logger.info('Link best parameters {{ {} }} to {{ {} }}'.format(save_path, link_path))
-        else:
-            new_lr = trainer.learning_rate * args.lr_update_factor
-            # reset the model to the best model
-            model.load_params(os.path.join(args.save_dir, 'valid_best.params'))
-            logger.info('Learning rate change to {}'.format(new_lr))
-            trainer.set_learning_rate(new_lr)
-    ######################## End of the Epoch training #############################
-    model.load_params(os.path.join(args.save_dir, 'valid_best.params'))
-    valid_loss, valid_translation_out = evaluate(val_data_loader)
-    valid_bleu_score, _, _, _, _ = compute_bleu([val_tgt_sentences], valid_translation_out)
-    valid_wer = compute_wer(val_tgt_sentences, valid_translation_out)
-    logger.info('Best model valid Loss={:.4f}, valid ppl={:.4f}, valid bleu={:.2f}, valid wer={:.2f}'
-                 .format(valid_loss, np.exp(valid_loss), valid_bleu_score * 100, valid_wer * 100))
-    write_sentences(valid_translation_out,
-                    os.path.join(valid_out_dir, 'best_valid_out.txt'))
 
+            terminal_flag = 0
+        else:
+            if (epoch_id+1 > args.halving_after_epoch):
+                new_lr = trainer.learning_rate * args.lr_update_factor
+                trainer.set_learning_rate(new_lr)
+                logger.info('Learning rate change to {}, terminal_flag={}'.format(new_lr, terminal_flag))
+                terminal_flag += 1
+                # reset the model to the best model
+                model.load_parameters(link_path)
+                logger.info('Reload the best params: {}'.format(link_path))
+        
+        if (terminal_flag >= args.terminal_after_epoch):
+            break
+    ######################## End of the Epoch training #############################
     logger.info("==================")
     logger.info("Success Trained!")
     logger.info("==================")
