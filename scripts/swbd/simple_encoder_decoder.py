@@ -64,7 +64,7 @@ def _get_attention_cell(attention_cell, units=None):
                 .format(attention_cell)
         return attention_cell
 
-def _nested_copy_states(states, num_layers):
+def _nested_copy_states(states, num_layers, bidirectional=False):
     '''
     Parameters
     ----------
@@ -87,8 +87,14 @@ def _nested_copy_states(states, num_layers):
         F = mx.sym if isinstance(states, mx.sym.Symbol) else mx.ndarray
         input_layers = states.shape[0]
         #print(input_layers, num_layers, states.shape)
-        last_layer_states = F.expand_dims(states[-1], axis=0) # (1, B, H)
-        #Just copy the last layer !!!
+        if bidirectional:
+            last_layer_states = F.concat(F.expand_dims(states[-1], axis=0),
+                                        F.expand_dims(states[-2], axis=0),
+                                        dim=2)
+        else:
+            last_layer_states = F.expand_dims(states[-1], axis=0) # (1, B, H)
+        
+        #Just copy the last layer(for blstm, concat the l->, r-> direction)
         return F.broadcast_axis(last_layer_states, axis=0, size=num_layers)
         #Copy the same layer states !!!
         # if input_layers > num_layers:
@@ -103,7 +109,7 @@ def _nested_copy_states(states, num_layers):
     elif isinstance(states, list):
         ret = []
         for ele in states:
-            ret.append(_nested_copy_states(ele, num_layers))
+            ret.append(_nested_copy_states(ele, num_layers, bidirectional))
         return ret
     else:
         raise NotImplementedError
@@ -114,8 +120,10 @@ class SimpleEncoder(HybridBlock):
         super(SimpleEncoder, self).__init__(prefix=prefix, params=params)
         self._cell_type = _get_cell_type(cell_type)
         self._num_layers = num_layers
-        self._hidden_size = hidden_size
         self._bidirectional = bidirectional
+        if bidirectional:
+            hidden_size = hidden_size // 2
+        self._hidden_size = hidden_size
         with self.name_scope():
             self.rnn_cells = self._cell_type(hidden_size=hidden_size,
                                              num_layers=num_layers,
@@ -150,7 +158,6 @@ class SimpleEncoder(HybridBlock):
         # thy states will always be a list, [ele, ], each ele has 
         # the Shape (num_layers, batch_size, hidden_sizes)
         outputs, last_states = self.rnn_cells(inputs, begin_states)
-        #print("lee debug====>", last_states[0].shape)
         outputs = F.SequenceMask(outputs, sequence_length=valid_length, 
                                         use_sequence_length=True, axis=1)
         return outputs, last_states
