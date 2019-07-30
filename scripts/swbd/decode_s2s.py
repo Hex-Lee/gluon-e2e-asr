@@ -169,9 +169,13 @@ src_embed = gluon.nn.HybridSequential(prefix='src_embed_')
 with src_embed.name_scope():
     src_embed.add(gluon.nn.Dense(args.hidden_size, in_units=len(src_vocab),
                                   weight_initializer=mx.init.Uniform(0.1), flatten=False))
+tgt_proj = gluon.nn.HybridSequential(prefix='tgt_proj_')
+with tgt_proj.name_scope():
+    tgt_proj.add(gluon.nn.Dense(args.hidden_size, flatten=False))
+    tgt_proj.add(gluon.nn.Dense(len(tgt_vocab), flatten=False))
 
-model = NMTModel(src_vocab=src_vocab, tgt_vocab=tgt_vocab, encoder=encoder, decoder=decoder,
-                 src_embed=src_embed, embed_size=args.hidden_size, prefix='gnmt_')
+model = NMTModel(src_vocab=src_vocab, tgt_vocab=tgt_vocab, encoder=encoder, decoder=decoder, enc_bidirectional=args.enc_bidirectional,
+                 src_embed=src_embed, tgt_proj=tgt_proj, embed_size=args.hidden_size, prefix='gnmt_')
 
 logger.info(model.collect_params().keys())
 
@@ -203,7 +207,7 @@ for batch_id, (src_seq, src_valid_length, inst_ids) in enumerate(test_data_loade
     # Translate
     for xpu_X, xpu_XL in zip(xpu_src_seq, xpu_src_valid_length):
         samples, _, sample_valid_length =\
-            translator.translate(src_seq=xpu_X, src_valid_length=xpu_XL)
+            translator.translate(src_seq=xpu_X, src_valid_length=xpu_XL, enc_bidirectional=args.enc_bidirectional)
         max_score_sample = samples[:, 0, :].asnumpy()
         sample_valid_length = sample_valid_length[:, 0].asnumpy()
         for i in range(max_score_sample.shape[0]):

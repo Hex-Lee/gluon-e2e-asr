@@ -158,7 +158,7 @@ def evaluate(data_loader):
         # Translate
         for xpu_X, xpu_XL in zip(xpu_src_seq, xpu_src_valid_length):
             samples, _, sample_valid_length =\
-                translator.translate(src_seq=xpu_X, src_valid_length=xpu_XL)
+                translator.translate(src_seq=xpu_X, src_valid_length=xpu_XL, enc_bidirectional=args.enc_bidirectional)
             max_score_sample = samples[:, 0, :].asnumpy()
             sample_valid_length = sample_valid_length[:, 0].asnumpy()
             for i in range(max_score_sample.shape[0]):
@@ -296,7 +296,7 @@ with tgt_proj.name_scope():
     tgt_proj.add(gluon.nn.Dense(args.hidden_size, flatten=False))
     tgt_proj.add(gluon.nn.Dense(len(tgt_vocab), flatten=False))
 
-model = NMTModel(src_vocab=None, tgt_vocab=tgt_vocab, encoder=encoder, decoder=decoder,
+model = NMTModel(src_vocab=None, tgt_vocab=tgt_vocab, encoder=encoder, decoder=decoder, enc_bidirectional=args.enc_bidirectional,
                  src_embed=src_embed, tgt_proj=tgt_proj, embed_size=args.hidden_size, prefix='gnmt_')
 
 model.initialize(init=mx.init.Uniform(0.1), ctx=ctx)

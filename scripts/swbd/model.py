@@ -70,7 +70,7 @@ class NMTModel(Block):
     """
     def __init__(self, src_vocab, tgt_vocab, encoder, decoder,
                  embed_size=None, embed_dropout=0.0, embed_initializer=mx.init.Uniform(0.1),
-                 src_embed=None, tgt_embed=None, share_embed=False, tgt_proj=None,
+                 src_embed=None, tgt_embed=None, share_embed=False, tgt_proj=None, enc_bidirectional=False,
                  prefix=None, params=None):
         super(NMTModel, self).__init__(prefix=prefix, params=params)
         self.tgt_vocab = tgt_vocab
@@ -78,6 +78,7 @@ class NMTModel(Block):
         self.encoder = encoder
         self.decoder = decoder
         self._shared_embed = share_embed
+        self.enc_bidirectional = enc_bidirectional
         if embed_dropout is None:
             embed_dropout = 0.0
         # Construct src embedding
@@ -196,7 +197,7 @@ class NMTModel(Block):
         step_output = self.tgt_proj(combine_step_output)
         return step_output, new_decoder_states, attention_weight
 
-    def __call__(self, src_seq, tgt_seq, src_valid_length=None, tgt_valid_length=None):  #pylint: disable=arguments-differ
+    def __call__(self, src_seq, tgt_seq, src_valid_length=None, tgt_valid_length=None):
         """Generate the prediction given the src_seq and tgt_seq.
 
         This is used in training an NMT model.
@@ -216,11 +217,12 @@ class NMTModel(Block):
         """
         return super(NMTModel, self).__call__(src_seq, tgt_seq, src_valid_length, tgt_valid_length)
 
-    def forward(self, src_seq, tgt_seq, src_valid_length=None, tgt_valid_length=None):  #pylint: disable=arguments-differ
+    def forward(self, src_seq, tgt_seq, src_valid_length=None, tgt_valid_length=None):
         encode_mems, enc_rnn_states = self.encode(src_seq, valid_length=src_valid_length)
         decoder_states = self.decoder.init_state_from_encoder(encode_mems,
                                                               enc_rnn_states,
-                                                              encoder_valid_length=src_valid_length)
+                                                              encoder_valid_length=src_valid_length,
+                                                              enc_bidirectional=self.enc_bidirectional)
 
         return self.decode_seq(tgt_seq, decoder_states, tgt_valid_length)
 
@@ -311,7 +313,7 @@ class BeamSearchTranslator(object):
 
         return mx.nd.log_softmax(out), new_decoder_states
 
-    def translate(self, src_seq, src_valid_length):
+    def translate(self, src_seq, src_valid_length, enc_bidirectional=False):
         """Get the translation result given the input sentence.
 
         Parameters
@@ -335,7 +337,8 @@ class BeamSearchTranslator(object):
         encode_mems, enc_rnn_states = self._model.encode(src_seq, valid_length=src_valid_length)
         begin_decoder_states = self._model.decoder.init_state_from_encoder(encode_mems,
                                                                            enc_rnn_states,
-                                                                           src_valid_length)
+                                                                           src_valid_length,
+                                                                           enc_bidirectional)
         # change the rnn states to shape (B, L, C)
         begin_decoder_states[0] = _nested_swap_states(begin_decoder_states[0])
 

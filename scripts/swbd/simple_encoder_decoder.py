@@ -179,7 +179,7 @@ class SimpleDecoder(HybridBlock):
                                              dropout=dropout,
                                              bidirectional=bidirectional)
 
-    def init_state_from_encoder(self, mem_value, enc_rnn_states, encoder_valid_length=None):
+    def init_state_from_encoder(self, mem_value, enc_rnn_states, encoder_valid_length=None, enc_bidirectional=False):
         """Initialize the state from the encoder outputs and states.
 
         Parameters
@@ -206,7 +206,7 @@ class SimpleDecoder(HybridBlock):
         batch_size, mem_length, mem_size = mem_value.shape
 
         # use the last layer hidden states of the encoder as the decoder begin states
-        init_dec_rnn_states = _nested_copy_states(enc_rnn_states, self._num_layers)
+        init_dec_rnn_states = _nested_copy_states(enc_rnn_states, self._num_layers, enc_bidirectional)
         init_decoder_states = [init_dec_rnn_states, mem_value]
         if encoder_valid_length is not None:
             '''

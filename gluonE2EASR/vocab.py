@@ -72,7 +72,7 @@ class Vocab(object):
         self._idx_to_token = []
         self._token_to_idx = DefaultLookupDict()
 
-        asset vocab_file is not None, 'lack of vocabulary file!'
+        assert vocab_file is not None, 'lack of vocabulary file!'
         logger.info("Use the custom vocab_file: {}".format(vocab_file))
         self._load_vocab_file_with_index(vocab_file)      
         self._index_special_tokens(unknown_token, special_tokens)

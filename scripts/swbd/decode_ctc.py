@@ -117,13 +117,24 @@ def decode(data_loader):
             out = model(xpu_X)
             posterior = mx.ndarray.softmax(out, axis=2)
             # Greedy search translate
-            trans = mx.ndarray.argmax(out, axis=2).asnumpy() # shape (batch_size, sequence_length, vocab_size)
-            for i in range(trans.shape[0]):
+            unk_int = tgt_vocab.token_to_idx[tgt_vocab.unknown_token]
+            # print(unk_int, tgt_vocab.unknown_token)
+
+            for i in range(out.shape[0]):
+                # trans = mx.ndarray.argmax(out[i], axis=1).asnumpy()
+                trans_sort = mx.ndarray.argsort(out[i], is_ascend=0)
+                trans = trans_sort[:,0].asnumpy()
+                trans2 = trans_sort[:,1].asnumpy()
+                # print(trans, trans2)
+
                 input_len = xpu_XL[i].astype(np.dtype('int')).asscalar()
                 tmp_tans = []
                 for j in range(input_len):
-                    prev = int(trans[i][j-1])
-                    curr = int(trans[i][j])
+                    prev = int(trans[j-1])
+                    curr = int(trans[j])
+                    if curr == unk_int:
+                        curr = int(trans2[j])
+
                     if j == 0 or curr != prev:
                         if curr != 0: # means is blank
                             tmp_tans.append(curr)
@@ -173,7 +184,7 @@ if args.src_sym is not None:
                                               bos_token=None, eos_token=None)
 # CTC don't need <s> </s>
 if args.tgt_sym is not None:
-    tgt_vocab = Vocab(vocab_file=args.tgt_sym, unknown_token=None, padding_token=None,
+    tgt_vocab = Vocab(vocab_file=args.tgt_sym, unknown_token='<unk>', padding_token=None,
                                               bos_token=None, eos_token=None)
 logger.info(tgt_vocab)
 
@@ -247,10 +258,10 @@ with io.open(trans_file, 'w', encoding='utf-8') as of:
         key = data_test.get_utt_key(i)
         of.write(key + ' ' + sent + '\n')
         
-post_file = os.path.join(decode_dir, 'post.ark')
-with io.open(post_file, 'wb') as of:
-    for i in range(len(data_test)):
-        key = data_test.get_utt_key(i)
-        mat = test_post_out[i]
-        kaldi_io.write_mat(of, mat, key)
+# post_file = os.path.join(decode_dir, 'post.ark')
+# with io.open(post_file, 'wb') as of:
+#     for i in range(len(data_test)):
+#         key = data_test.get_utt_key(i)
+#         mat = test_post_out[i]
+#         kaldi_io.write_mat(of, mat, key)
     
